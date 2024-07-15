@@ -41,7 +41,7 @@ def decrypt_password(cipher, encrypted_password):
 def register(username, master_password):
     salt = os.urandom(16)
     hashed_master_password = hash_password(master_password, salt)
-    encrypted_username = encrypt_password(cipher, username)  # Titkosítjuk a felhasználónevet
+    encrypted_username = encrypt_password(cipher, username)  # Encrypting the username
 
     user_data = {
         'username': encrypted_username,
@@ -57,7 +57,7 @@ def register(username, master_password):
         existing_data = []
 
     for user in existing_data:
-        # Itt is titkosított értéket hasonlítunk össze
+        # Compare encrypted values here
         if decrypt_password(cipher, user['username']) == username:
             messagebox.showinfo("Success", "Username already exists. Proceed to login.")
             return
@@ -77,7 +77,7 @@ def login(username, entered_password):
         for user_data in user_data_list:
             salt = base64.b64decode(user_data['salt'])
             stored_password_hash = user_data['master_password']
-            decrypted_username = decrypt_password(cipher, user_data['username'])  # Visszafejtjük a felhasználónevet
+            decrypted_username = decrypt_password(cipher, user_data['username'])  # Decrypting the username
             entered_password_hash = hash_password(entered_password, salt).decode()
 
             if entered_password_hash == stored_password_hash and decrypted_username == username:
@@ -93,6 +93,7 @@ def login(username, entered_password):
         messagebox.showerror("Error", "Error logging in.")
         print(e)
         return False
+
 # Function to view saved websites
 def view_websites(logged_in_username):
     try:
