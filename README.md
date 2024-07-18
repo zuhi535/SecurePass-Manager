@@ -1,3 +1,5 @@
+
+
 # Password Manager
 This is a secure and user-friendly Password Manager application built with Python and Tkinter. It allows users to register, log in, and manage their passwords for various websites. The application securely encrypts and stores passwords, ensuring user data privacy and security.
 
@@ -75,3 +77,9 @@ Click on the Logout button to log out and return to the main menu.
 - Password Hashing: Master passwords are hashed using PBKDF2 with SHA-512 and a high iteration count.
 - Encryption: Usernames and passwords are encrypted using Fernet symmetric encryption.
 - Failed Login Attempts: Failed login attempts are tracked, and after 5 failed attempts, all stored data is reset to protect against brute-force attacks.
+# Description of the Password Manager process. Stepwise
+
+
+<p align="center">
+  <img src="./diagram-export-2024.-07.-18.-2_19_45.png" alt="Projekt logo" width="1200"/>
+</p>
