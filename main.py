@@ -97,15 +97,28 @@ def login(username, entered_password):
 # Function to view saved websites
 def view_websites(logged_in_username):
     try:
-        with open('passwords.json', 'r') as data:
-            view = json.load(data)
-            websites = "\n".join(x['website'] for x in view if x['username'] == logged_in_username)
-            if websites:
-                messagebox.showinfo("Saved Websites", websites)
-            else:
-                messagebox.showinfo("Saved Websites", "No saved websites.")
+        with open('passwords.json', 'r') as data_file:
+            data = json.load(data_file)
+            
+        # Debugging print statements
+        print("Loaded data:", data)
+        
+        # Filter data by logged_in_username
+        websites = [entry['website'] for entry in data if entry['current_username'] == logged_in_username]
+        
+        # Debugging print statements
+        print("Filtered websites:", websites)
+        
+        if websites:
+            messagebox.showinfo("Saved Websites", "\n".join(websites))
+        else:
+            messagebox.showinfo("Saved Websites", "No saved websites.")
     except FileNotFoundError:
         messagebox.showerror("Error", "No saved passwords.")
+    except json.JSONDecodeError:
+        messagebox.showerror("Error", "Error decoding passwords file.")
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
 # Load or generate the encryption key securely
 key_filename = 'encryption_key.key'
@@ -120,7 +133,7 @@ else:
 cipher = initialize_cipher(key)
 
 # Function to add (save) password
-def add_password(username, website, password):
+def add_password(current_username, website, username, password):
     if not os.path.exists('passwords.json'):
         data = []
     else:
@@ -131,7 +144,7 @@ def add_password(username, website, password):
             data = []
 
     encrypted_password = encrypt_password(cipher, password)
-    password_entry = {'username': username, 'website': website, 'password': encrypted_password}
+    password_entry = {'current_username': current_username, 'website': website, 'username': username, 'password': encrypted_password}
     data.append(password_entry)
 
     with open('passwords.json', 'w') as file:
@@ -150,12 +163,11 @@ def get_password(logged_in_username, website):
         data = []
 
     for entry in data:
-        if entry['website'] == website and entry['username'] == logged_in_username:
+        if entry['website'] == website and entry['current_username'] == logged_in_username:
             decrypted_password = decrypt_password(cipher, entry['password'])
-            username = entry['username']
             pyperclip.copy(decrypted_password)
-            messagebox.showinfo("Password", f"Username: {username}\nPassword for {website}: {decrypted_password}\nPassword copied to clipboard.")
-            return username, decrypted_password
+            messagebox.showinfo("Password", f"Username: {entry['username']}\nPassword for {website}: {decrypted_password}\nPassword copied to clipboard.")
+            return entry['username'], decrypted_password
 
     messagebox.showerror("Error", "Password not found.")
     return None, None
@@ -171,16 +183,24 @@ def delete_password(logged_in_username, website):
     except json.JSONDecodeError:
         data = []
 
-    for entry in data:
-        if entry['website'] == website and entry['username'] == logged_in_username:
-            data.remove(entry)
-            with open('passwords.json', 'w') as file:
-                json.dump(data, file, indent=4)
-            messagebox.showinfo("Success", "Password Deleted!")
-            return True
+    # Use a temporary list to hold items to keep
+    new_data = []
+    found = False
 
-    messagebox.showerror("Error", "Password not found.")
-    return False
+    for entry in data:
+        if entry['website'].strip().lower() == website.strip().lower() and entry['current_username'].strip().lower() == logged_in_username.strip().lower():
+            found = True
+            continue
+        new_data.append(entry)
+
+    if found:
+        with open('passwords.json', 'w') as file:
+            json.dump(new_data, file, indent=4)
+        messagebox.showinfo("Success", "Password Deleted!")
+        return True
+    else:
+        messagebox.showerror("Error", "Password not found.")
+        return False
 
 # Function to increment failed login attempts
 def increment_failed_attempts():
@@ -194,6 +214,7 @@ def increment_failed_attempts():
     if attempts >= 5:
         reset_data()
         messagebox.showerror("Error", "Too many failed login attempts. You're looking in the wrong place.")
+        return
 
     with open('failed_attempts.json', 'w') as file:
         json.dump({'attempts': attempts}, file)
@@ -205,12 +226,13 @@ def reset_failed_attempts():
 
 # Function to reset all data
 def reset_data():
-    if os.path.exists('user_data.json'):
-        os.remove('user_data.json')
-    if os.path.exists('passwords.json'):
-        os.remove('passwords.json')
-    if os.path.exists('failed_attempts.json'):
-        os.remove('failed_attempts.json')
+    # Remove all relevant data files
+    for file in ['user_data.json', 'passwords.json', 'failed_attempts.json']:
+        if os.path.exists(file):
+            os.remove(file)
+    # Optionally, reset encryption key if needed
+    if os.path.exists('encryption_key.key'):
+        os.remove('encryption_key.key')
 
 # Tkinter GUI
 class PasswordManager:
@@ -222,6 +244,7 @@ class PasswordManager:
 
         self.logged_in_username = None
 
+        self.clear_window()  # Call this method early to ensure it's defined
         self.create_main_menu()
 
         # Create a custom style for rounded buttons
@@ -231,6 +254,10 @@ class PasswordManager:
                   background=[('active', '#DCDAD5'), ('disabled', '#DCDAD5')],
                   foreground=[('active', 'black')])
         style.configure("Custom.TButton", borderwidth=0, borderradius=5)
+
+    def clear_window(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
 
     def translate(self, key):
         translations = {
@@ -249,177 +276,154 @@ class PasswordManager:
             "error": "Error",
             "registration_successful": "Registration Successful!",
             "incorrect_login_credentials": "Incorrect Login Credentials.",
-            "user_not_registered": "User not registered.",
             "password_added": "Password Added!",
             "password_deleted": "Password Deleted!",
             "password_not_found": "Password not found.",
-            "all_fields_required": "All fields are required!",
-            "login_successful": "Login Successful!",
-            "saved_websites": "Saved Websites",
-            "password": "Password",
-            "website": "Website",
-            "password_for": "Password for",
+            "username_already_exists": "Username already exists. Proceed to login.",
             "password_copied": "Password copied to clipboard.",
-            "back": "Back",
-            "add": "Add"
+            "too_many_attempts": "Too many failed login attempts. You're looking in the wrong place."
         }
-        return translations[key]
+        return translations.get(key, key)
 
     def create_main_menu(self):
         self.clear_window()
+        title_label = Label(self.root, text="Welcome to Password Manager", font=("Operations", 24, "bold"), bg='#DCDAD5')
+        title_label.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
 
-        style = ttk.Style()
-        style.configure("TButton", padding=10, font=("Operations", 10), background="#DCDAD5", foreground="black")
-        style.map("TButton",
-                  background=[('active', '#DCDAD5'), ('disabled', '#DCDAD5')],
-                  foreground=[('active', 'black')])
+        register_button = Button(self.root, text=self.translate("register"), command=self.create_register_page, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        register_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
 
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_columnconfigure(1, weight=1)
+        login_button = Button(self.root, text=self.translate("login"), command=self.create_login_page, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        login_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
-        self.create_buttons([
-            (self.translate("register"), self.create_registration_window, 1),
-            (self.translate("login"), self.create_login_window, 2),
-            (self.translate("exit"), self.root.quit, 3)
-        ], padx=20, pady=20)
+        exit_button = Button(self.root, text=self.translate("exit"), command=self.root.quit, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        exit_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-    def create_buttons(self, button_configs, padx=0, pady=0):
-        for text, command, row in button_configs:
-            button = ttk.Button(self.root, text=text, command=command, style="Custom.TButton")
-            button.grid(row=row, column=0, columnspan=2, padx=padx, pady=pady, sticky="ew")
-
-    def create_registration_window(self):
+    def create_register_page(self):
         self.clear_window()
-        self.root.title(self.translate("register"))
+        username_label = Label(self.root, text=self.translate("username"), font=("Operations", 12), bg='#DCDAD5')
+        username_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        username_entry = Entry(self.root, font=("Operations", 12))
+        username_entry.grid(row=0, column=1, padx=10, pady=10)
 
-        labels_entries = [
-            (self.translate("username"), "register_username_entry"),
-            (self.translate("master_password"), "register_master_password_entry")
-        ]
-        self.create_labels_and_entries(labels_entries, 0)
+        master_password_label = Label(self.root, text=self.translate("master_password"), font=("Operations", 12), bg='#DCDAD5')
+        master_password_label.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        master_password_entry = Entry(self.root, show="*", font=("Operations", 12))
+        master_password_entry.grid(row=1, column=1, padx=10, pady=10)
 
-        ttk.Button(self.root, text=self.translate("register"), command=self.perform_registration).grid(row=2, column=0, columnspan=2, pady=10)
-        ttk.Button(self.root, text=self.translate("back"), command=self.create_main_menu).grid(row=3, column=0, columnspan=2, pady=10)
+        register_button = Button(self.root, text=self.translate("register"), command=lambda: self.register_user(username_entry.get(), master_password_entry.get()), font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        register_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-    def create_labels_and_entries(self, labels_entries, start_row):
-        for i, (label_text, entry_var) in enumerate(labels_entries, start=start_row):
-            ttk.Label(self.root, text=label_text).grid(row=i, column=0, padx=10, pady=10, sticky="e")
-            entry = ttk.Entry(self.root, show="*" if "password" in entry_var else None)
-            entry.grid(row=i, column=1, padx=10, pady=10, sticky="w")
-            setattr(self, entry_var, entry)
+        back_button = Button(self.root, text="Back", command=self.create_main_menu, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        back_button.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-    def create_login_window(self):
+    def create_login_page(self):
         self.clear_window()
-        self.root.title(self.translate("login"))
+        username_label = Label(self.root, text=self.translate("username"), font=("Operations", 12), bg='#DCDAD5')
+        username_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        username_entry = Entry(self.root, font=("Operations", 12))
+        username_entry.grid(row=0, column=1, padx=10, pady=10)
 
-        labels_entries = [
-            (self.translate("username"), "login_username_entry"),
-            (self.translate("master_password"), "login_master_password_entry")
-        ]
-        self.create_labels_and_entries(labels_entries, 0)
+        master_password_label = Label(self.root, text=self.translate("master_password"), font=("Operations", 12), bg='#DCDAD5')
+        master_password_label.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        master_password_entry = Entry(self.root, show="*", font=("Operations", 12))
+        master_password_entry.grid(row=1, column=1, padx=10, pady=10)
 
-        ttk.Button(self.root, text=self.translate("login"), command=self.perform_login).grid(row=2, column=0, columnspan=2, pady=10)
-        ttk.Button(self.root, text=self.translate("back"), command=self.create_main_menu).grid(row=3, column=0, columnspan=2, pady=10)
+        login_button = Button(self.root, text=self.translate("login"), command=lambda: self.login_user(username_entry.get(), master_password_entry.get()), font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        login_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-    def create_password_manager_menu(self):
+        back_button = Button(self.root, text="Back", command=self.create_main_menu, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        back_button.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+    def create_dashboard(self):
         self.clear_window()
-        self.root.title(self.translate("login_successful"))
 
-        buttons = [
-            (self.translate("add_password"), self.create_add_password_window, 0),
-            (self.translate("retrieve_password"), self.create_retrieve_password_window, 1),
-            (self.translate("view_saved_websites"), lambda: view_websites(self.logged_in_username), 2),
-            (self.translate("delete_password"), self.create_delete_password_window, 3),
-            (self.translate("logout"), self.create_main_menu, 4)
-        ]
-        self.create_buttons(buttons, padx=20, pady=10)
+        add_password_button = Button(self.root, text=self.translate("add_password"), command=self.create_add_password_page, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        add_password_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
-    def create_add_password_window(self):
+        retrieve_password_button = Button(self.root, text=self.translate("retrieve_password"), command=self.create_retrieve_password_page, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        retrieve_password_button.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+
+        view_saved_websites_button = Button(self.root, text=self.translate("view_saved_websites"), command=lambda: view_websites(self.logged_in_username), font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        view_saved_websites_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+
+        delete_password_button = Button(self.root, text=self.translate("delete_password"), command=self.create_delete_password_page, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        delete_password_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+
+        logout_button = Button(self.root, text=self.translate("logout"), command=self.logout_user, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        logout_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+    def create_add_password_page(self):
         self.clear_window()
-        self.root.title(self.translate("add_password"))
 
-        labels_entries = [
-            (self.translate("website"), "add_website_entry"),
-            (self.translate("username"), "add_username_entry"),
-            (self.translate("password"), "add_password_entry")
-        ]
-        self.create_labels_and_entries(labels_entries, 0)
+        website_label = Label(self.root, text=self.translate("enter_website"), font=("Operations", 12), bg='#DCDAD5')
+        website_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        website_entry = Entry(self.root, font=("Operations", 12))
+        website_entry.grid(row=0, column=1, padx=10, pady=10)
 
-        ttk.Button(self.root, text=self.translate("add"), command=self.perform_add_password).grid(row=3, column=0, columnspan=2, pady=10)
-        ttk.Button(self.root, text=self.translate("back"), command=self.create_password_manager_menu).grid(row=4, column=0, columnspan=2, pady=10)
+        username_label = Label(self.root, text=self.translate("enter_username"), font=("Operations", 12), bg='#DCDAD5')
+        username_label.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        username_entry = Entry(self.root, font=("Operations", 12))
+        username_entry.grid(row=1, column=1, padx=10, pady=10)
 
-    def create_retrieve_password_window(self):
+        password_label = Label(self.root, text=self.translate("enter_password"), font=("Operations", 12), bg='#DCDAD5')
+        password_label.grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        password_entry = Entry(self.root, show="*", font=("Operations", 12))
+        password_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        add_button = Button(self.root, text=self.translate("add_password"), command=lambda: add_password(self.logged_in_username, website_entry.get(), username_entry.get(), password_entry.get()), font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        add_button.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+        back_button = Button(self.root, text="Back", command=self.create_dashboard, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        back_button.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+    def create_retrieve_password_page(self):
         self.clear_window()
-        self.root.title(self.translate("retrieve_password"))
 
-        ttk.Label(self.root, text=self.translate("website")).grid(row=0, column=0, padx=10, pady=10, sticky="e")
-        self.retrieve_website_entry = ttk.Entry(self.root)
-        self.retrieve_website_entry.grid(row=0, column=1, padx=10, pady=10)
+        website_label = Label(self.root, text=self.translate("enter_website"), font=("Operations", 12), bg='#DCDAD5')
+        website_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        website_entry = Entry(self.root, font=("Operations", 12))
+        website_entry.grid(row=0, column=1, padx=10, pady=10)
 
-        ttk.Button(self.root, text=self.translate("retrieve_password"), command=self.perform_retrieve_password).grid(row=1, column=0, columnspan=2, pady=10)
-        ttk.Button(self.root, text=self.translate("back"), command=self.create_password_manager_menu).grid(row=2, column=0, columnspan=2, pady=10)
+        retrieve_button = Button(self.root, text=self.translate("retrieve_password"), command=lambda: get_password(self.logged_in_username, website_entry.get()), font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        retrieve_button.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-    def create_delete_password_window(self):
+        back_button = Button(self.root, text="Back", command=self.create_dashboard, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        back_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+
+    def create_delete_password_page(self):
         self.clear_window()
-        self.root.title(self.translate("delete_password"))
 
-        ttk.Label(self.root, text=self.translate("website")).grid(row=0, column=0, padx=10, pady=10, sticky="e")
-        self.delete_website_entry = ttk.Entry(self.root)
-        self.delete_website_entry.grid(row=0, column=1, padx=10, pady=10)
+        website_label = Label(self.root, text=self.translate("enter_website"), font=("Operations", 12), bg='#DCDAD5')
+        website_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        website_entry = Entry(self.root, font=("Operations", 12))
+        website_entry.grid(row=0, column=1, padx=10, pady=10)
 
-        ttk.Button(self.root, text=self.translate("delete_password"), command=self.perform_delete_password).grid(row=1, column=0, columnspan=2, pady=10)
-        ttk.Button(self.root, text=self.translate("back"), command=self.create_password_manager_menu).grid(row=2, column=0, columnspan=2, pady=10)
+        delete_button = Button(self.root, text=self.translate("delete_password"), command=lambda: delete_password(self.logged_in_username, website_entry.get()), font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        delete_button.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
-    def perform_registration(self):
-        username = self.register_username_entry.get()
-        master_password = self.register_master_password_entry.get()
+        back_button = Button(self.root, text="Back", command=self.create_dashboard, font=("Operations", 12, "bold"), bg='#DCDAD5', fg="black")
+        back_button.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
+    def register_user(self, username, master_password):
         if username and master_password:
             register(username, master_password)
-            self.create_main_menu()
         else:
-            messagebox.showerror(self.translate("error"), self.translate("all_fields_required"))
+            messagebox.showerror("Error", "Please enter both username and password.")
 
-    def perform_login(self):
-        username = self.login_username_entry.get()
-        master_password = self.login_master_password_entry.get()
-
+    def login_user(self, username, master_password):
         if username and master_password:
             if login(username, master_password):
-                self.logged_in_username = username  # Save the logged-in user's username.
-                self.create_password_manager_menu()
+                self.logged_in_username = username
+                self.create_dashboard()
         else:
-            messagebox.showerror(self.translate("error"), self.translate("all_fields_required"))
+            messagebox.showerror("Error", "Please enter both username and password.")
 
-    def perform_add_password(self):
-        website = self.add_website_entry.get()
-        username = self.add_username_entry.get()
-        password = self.add_password_entry.get()
+    def logout_user(self):
+        self.logged_in_username = None
+        self.create_main_menu()
 
-        if website and username and password:
-            add_password(self.logged_in_username, website, password)
-            self.create_password_manager_menu()
-        else:
-            messagebox.showerror(self.translate("error"), self.translate("all_fields_required"))
-
-    def perform_retrieve_password(self):
-        website = self.retrieve_website_entry.get()
-        if website:
-            get_password(self.logged_in_username, website)
-        else:
-            messagebox.showerror(self.translate("error"), self.translate("all_fields_required"))
-
-    def perform_delete_password(self):
-        website = self.delete_website_entry.get()
-        if website:
-            delete_password(self.logged_in_username, website)
-        else:
-            messagebox.showerror(self.translate("error"), self.translate("all_fields_required"))
-
-    def clear_window(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-
+# Main program
 if __name__ == "__main__":
     root = Tk()
     app = PasswordManager(root)
